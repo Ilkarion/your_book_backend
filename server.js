@@ -39,7 +39,7 @@ app.post("/api/register", async (req, res) => {
     const transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: process.env.SMTP_PORT,
-        secure: false, // TLS через STARTTLS
+        secure: false, 
         auth: {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS
@@ -49,7 +49,7 @@ app.post("/api/register", async (req, res) => {
     from: '"MyApp" <noreply@myapp.com>',
     to: email,
     subject: "Confirm email",
-    html: `<a href="http://localhost:3000/api/confirm?token=${confirmToken}">Подтвердить email</a>`
+    html: `<a href="${process.env.SERVER_URL}/api/confirm?token=${confirmToken}">Подтвердить email</a>`
     });
     
     res.json({ message: "Registered!" });
@@ -82,42 +82,53 @@ app.get("/api/confirm", async (req, res) => {
 // ===== LOGIN =====
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
+  const isProduction = process.env.NODE_ENV === "production";
 
-  // Устанавливаем email для RLS
-  await supabase.rpc('set_current_user_email', { email });
+  if (!email || !password)
+    return res.status(400).json({ message: "Email and password required" });
 
-  // Запрашиваем пользователя
-  const { data: user, error } = await supabase
-    .from("users")
-    .select("id, email, password, is_confirmed")
-    .single();
+  try {
+    // ищем только этого юзера
+    const { data: user, error } = await supabase
+      .from("users")
+      .select("id, email, password, is_confirmed")
+      .eq("email", email)
+      .single();
+    if (error || !user)
+      return res.status(400).json({ message: "Invalid email or password" });
 
-  console.log("Email:", email);
-  console.log("User from DB:", user);
+    // проверка подтверждения почты
+    if (!user.is_confirmed)
+      return res.status(403).json({ message: "Email not confirmed" });
 
-  if (!user) return res.status(400).json({ message: "Invalid credentials" });
+    // сверяем хэш
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid)
+      return res.status(400).json({ message: "Invalid email or password" });
 
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) return res.status(400).json({ message: "Invalid credentials" });
+    // генерим токены
+    const accessToken = jwt.sign({ email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
+    //jwExpir = short life time
+    const refreshToken = jwt.sign({ email }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRE });
 
-  const accessToken = jwt.sign({ email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
-  const refreshToken = jwt.sign({ email }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRE });
+    res.cookie("access_token", accessToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: "Strict",
+      maxAge: 15 * 60 * 1000
+    });
+    res.cookie("refresh_token", refreshToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: "Strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
 
-  res.cookie("access_token", accessToken, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "Strict",
-    maxAge: 15 * 60 * 1000
-  });
-
-  res.cookie("refresh_token", refreshToken, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "Strict",
-    maxAge: 7 * 24 * 60 * 60 * 1000
-  });
-
-  res.json({ message: "Logged in!" });
+    res.json({ message: "Logged in!" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
 
@@ -125,13 +136,13 @@ app.post("/api/login", async (req, res) => {
 app.post("/api/refresh", (req, res) => {
   const { refresh_token } = req.cookies;
   if (!refresh_token) return res.status(401).json({ message: "No refresh token" });
-
+const isProduction = process.env.NODE_ENV === "production";
   try {
     const payload = jwt.verify(refresh_token, REFRESH_SECRET);
     const accessToken = jwt.sign({ email: payload.email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
     res.cookie("access_token", accessToken, {
       httpOnly: true,
-      secure: true,
+      secure: isProduction,
       sameSite: "Strict",
       maxAge: 15 * 60 * 1000
     });
@@ -143,10 +154,21 @@ app.post("/api/refresh", (req, res) => {
 
 // ===== LOGOUT =====
 app.post("/api/logout", (req, res) => {
-  res.clearCookie("access_token");
-  res.clearCookie("refresh_token");
-  res.json({ message: "Logged out" });
+  const accessToken = req.cookies["access_token"];
+  const refreshToken = req.cookies["refresh_token"];
+  const isProduction = process.env.NODE_ENV === "production";
+  if (!accessToken && !refreshToken) {
+    // Если куки уже нет — пользователь и так вылогинен
+    return res.status(400).json({ message: "User already logged out" });
+  }
+
+  // Удаляем куки
+res.clearCookie("access_token", { httpOnly: true, secure: isProduction, sameSite: "Strict", path: "/" });
+res.clearCookie("refresh_token", { httpOnly: true, secure: isProduction, sameSite: "Strict", path: "/" });
+  // Возвращаем успешный ответ
+  res.status(200).json({ message: "Successfully logged out" });
 });
+
 
 // ===== PROTECTED =====
 app.get("/api/me", async (req, res) => {
@@ -154,6 +176,7 @@ app.get("/api/me", async (req, res) => {
   if (!token) return res.status(401).json({ message: "No token" });
 
   try {
+    //Проверяет токен, возвращает расшифрованные данные.
     const payload = jwt.verify(token, JWT_SECRET);
 
     const { data: user, error } = await supabase
