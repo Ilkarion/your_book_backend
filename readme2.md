@@ -67,3 +67,98 @@ function startTokenRefreshTimer(accessToken: string) {
 }
 
 ```
+---
+```javascript
+//Frontend usage of api/ping request
+"use client";
+import { useEffect, useRef } from "react";
+
+export default function PingProvider({ children }: { children: React.ReactNode }) {
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const doPing = () => {
+    fetch("https://your-backend.onrender.com/api/ping").catch(() => {});
+    // сброс таймера
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(doPing, 10 * 60 * 1000);
+  };
+
+  useEffect(() => {
+    // первый ping сразу
+    doPing();
+
+    // ping только если вкладка активна
+    const handleVisibility = () => {
+      if (!document.hidden) doPing();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    // перехват fetch
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      try {
+        const res = await originalFetch(...args);
+        doPing(); // сброс таймера при любом запросе
+        return res;
+      } catch (err) {
+        doPing();
+        throw err;
+      }
+    };
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      window.fetch = originalFetch; // восстанавливаем fetch при размонтировании
+    };
+  }, []);
+
+  return <>{children}</>;
+}
+
+---
+
+import PingProvider from "./components/PingProvider";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <PingProvider>{children}</PingProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+## Explanation of frontend api/ping request:
+
+# useRef()
+
+   useRef — это специальный React-хук, который создаёт объект, который сохраняется между рендерами компонента.
+
+Синтаксис:
+
+const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+Возвращает объект:
+
+{
+  current: null
+}
+
+То есть у любого объекта, созданного через useRef(), есть свойство .current, которое можно менять.
+
+В нашем случае мы используем .current, чтобы хранить идентификатор таймера, чтобы потом его очищать.
+* ref — это как коробочка на полке, куда ты кладёшь что-то и достаёшь потом. React её не трогает, она всегда на месте.
+
+# clearInterval()
+Не «пауза», а удаляется, т.е. больше не будет вызывать функцию.
+
+
+## use client / use server
+Если родительский компонент помечен "use client", а вложенный компонент (child) помечен "use server" → вложенный компонент всё равно будет серверным.
+
+React/Next.js позволяет так делать: клиентский компонент может рендерить серверный компонент внутри.
+
+Но обратного не работает: серверный компонент не может напрямую рендерить клиентский без обёртки "use client".

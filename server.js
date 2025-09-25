@@ -191,4 +191,11 @@ app.get("/api/me", async (req, res) => {
   }
 });
 
+//thin request to make this server always 'on' while user using frontend web site. 
+//Bcs 'Render' service will sleep if user dont make request for 10min
+app.get("/api/ping", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+
 app.listen(process.env.PORT, () => console.log(`Server running on http://localhost:${process.env.PORT}`));
