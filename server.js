@@ -5,12 +5,14 @@ import bcrypt from "bcrypt";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
-
+import cors from "cors";
 import nodemailer from "nodemailer";
 
 dotenv.config();
 
+
 const app = express();
+app.use(cors({ origin: "http://localhost:3000", credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
