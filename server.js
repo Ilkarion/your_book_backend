@@ -50,13 +50,25 @@ app.post("/api/register", async (req, res) => {
             pass: process.env.SMTP_PASS
         }
     });
-    await transporter.sendMail({
-    from: '"MyApp" <noreply@myapp.com>',
-    to: email,
-    subject: "Confirm email",
-    html: `<a href="${process.env.SERVER_URL}/api/confirm?token=${confirmToken}">Подтвердить email</a>`
-    });
-    
+    // await transporter.sendMail({
+    // from: '"MyApp" <noreply@myapp.com>',
+    // to: email,
+    // subject: "Confirm email",
+    // html: `<a href="${process.env.SERVER_URL}/api/confirm?token=${confirmToken}">Подтвердить email</a>`
+    // });
+    try {
+      await transporter.sendMail({
+        from: '"MyApp" <noreply@myapp.com>',
+        to: email,
+        subject: "Confirm email",
+        html: `<a href="${process.env.SERVER_URL}/api/confirm?token=${confirmToken}">Подтвердить email</a>`
+      });
+    } catch (e) {
+      console.error("Email error:", e);
+      res.status(500).json({"message": e})
+      // можно продолжить без письма
+    }
+      
     res.status(200).json({ message: "Registered!" });
 });
 
