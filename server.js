@@ -12,7 +12,10 @@ dotenv.config();
 
 
 const app = express();
+
 app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -54,7 +57,7 @@ app.post("/api/register", async (req, res) => {
     html: `<a href="${process.env.SERVER_URL}/api/confirm?token=${confirmToken}">Подтвердить email</a>`
     });
     
-    res.json({ message: "Registered!" });
+    res.status(200).json({ message: "Registered!" });
 });
 
 
@@ -126,9 +129,8 @@ app.post("/api/login", async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
-    res.json({ message: "Logged in!" });
+    res.status(200).json({ message: "Logged in!" });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -148,7 +150,7 @@ const isProduction = process.env.NODE_ENV === "production";
       sameSite: "Strict",
       maxAge: 15 * 60 * 1000
     });
-    res.json({ message: "Token refreshed" });
+    res.status(200).json({ message: "Token refreshed" });
   } catch (err) {
     res.status(401).json({ message: "Invalid refresh token" });
   }
@@ -187,7 +189,7 @@ app.get("/api/me", async (req, res) => {
       .eq("email", payload.email)
       .single();
 
-    res.json({ user });
+    res.status(200).json({ user });
   } catch (err) {
     res.status(401).json({ message: "Invalid token" });
   }
@@ -196,7 +198,7 @@ app.get("/api/me", async (req, res) => {
 //thin request to make this server always 'on' while user using frontend web site. 
 //Bcs 'Render' service will sleep if user dont make request for 10min
 app.get("/api/ping", (req, res) => {
-  res.json({ status: "ok" });
+  res.status(200).json({ status: "ok" });
 });
 
 
