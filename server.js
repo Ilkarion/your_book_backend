@@ -7,7 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import cors from "cors";
 import nodemailer from "nodemailer";
-
+import SibApiV3Sdk from '@sendinblue/client';
 dotenv.config();
 
 
@@ -21,6 +21,19 @@ app.use(cookieParser());
 
 // Supabase client
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_API_KEY);
+
+//send gamail BREVO
+const client = new SibApiV3Sdk.TransactionalEmailsApi();
+client.setApiKey(SibApiV3Sdk.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY);
+
+export async function sendVerification(email, token) {
+  await client.sendTransacEmail({
+    sender: { email: "myfirststepsprogramming@gmail.com", name: "Light" },
+    to: [{ email }],
+    subject: "Confirm your email",
+    htmlContent: `<a href="${process.env.SERVER_URL}/api/confirm?token=${token}">Verify email</a>`
+  });
+}
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRE = process.env.JWT_EXPIRE;
@@ -40,35 +53,7 @@ app.post("/api/register", async (req, res) => {
         confirm_token: confirmToken,
     }]);
     if (error) return res.status(400).json({ message: error.message });
-
-    const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT,
-        secure: false, 
-        auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS
-        }
-    });
-    // await transporter.sendMail({
-    // from: '"MyApp" <noreply@myapp.com>',
-    // to: email,
-    // subject: "Confirm email",
-    // html: `<a href="${process.env.SERVER_URL}/api/confirm?token=${confirmToken}">Подтвердить email</a>`
-    // });
-    try {
-      await transporter.sendMail({
-        from: '"MyApp" <noreply@myapp.com>',
-        to: email,
-        subject: "Confirm email",
-        html: `<a href="${process.env.SERVER_URL}/api/confirm?token=${confirmToken}">Подтвердить email</a>`
-      });
-    } catch (e) {
-      console.error("Email error:", e);
-      res.status(500).json({"message": e})
-      // можно продолжить без письма
-    }
-      
+    sendVerification(email, confirmToken)
     res.status(200).json({ message: "Registered!" });
 });
 
