@@ -52,8 +52,13 @@ app.post("/api/register", async (req, res) => {
         confirm_token: confirmToken,
     }]);
     if (error) return res.status(400).json({ message: error.message });
-    sendVerification(email, confirmToken)
-    res.status(200).json({ message: "Registered!" });
+    try {
+      await sendVerification(email, confirmToken);
+      return res.status(200).json({ message: "Registered!" });
+    } catch (e) {
+      console.error("Email send failed", e);
+      return res.status(500).json({ message: "Email send failed" });
+    }
 });
 
 
