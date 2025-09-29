@@ -62,7 +62,7 @@ function setCookie(res, name, value, maxAge) {
   res.cookie(name, value, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    sameSite: "None",
     maxAge,
     path: "/",
   });
@@ -155,8 +155,8 @@ app.post("/api/refresh", (req, res) => {
 // ===== LOGOUT =====
 app.post("/api/logout", (req, res) => {
   const isProd = process.env.NODE_ENV === "production";
-  res.clearCookie("access_token", { httpOnly: true, secure: isProd, sameSite: isProd ? "none" : "lax", path: "/" });
-  res.clearCookie("refresh_token", { httpOnly: true, secure: isProd, sameSite: isProd ? "none" : "lax", path: "/" });
+  res.clearCookie("access_token", { httpOnly: true, secure: isProd, sameSite: "None", path: "/" });
+  res.clearCookie("refresh_token", { httpOnly: true, secure: isProd, sameSite: "None", path: "/" });
   res.json({ message: "Logged out" });
 });
 
