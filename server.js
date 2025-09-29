@@ -71,8 +71,8 @@ function setCookie(req, res, name, value, maxAge) {
 
   res.cookie(name, value, {
     httpOnly: true,
-    secure: isSecure,
-    sameSite: isLocal ? "Lax" : "None",
+    secure: false,
+    sameSite: "None",
     maxAge,
     path: "/",
   });
@@ -178,8 +178,8 @@ app.post("/api/logout", (req, res) => {
   const isSecure =
     !isLocal && (req.secure || req.headers["x-forwarded-proto"] === "https");
 
-  res.clearCookie("access_token", { httpOnly: true, secure: isSecure, sameSite: isLocal ? "Lax" : "None", path: "/" });
-  res.clearCookie("refresh_token", { httpOnly: true, secure: isSecure, sameSite: isLocal ? "Lax" : "None", path: "/" });
+  res.clearCookie("access_token", { httpOnly: true, secure: false, sameSite: "None", path: "/" });
+  res.clearCookie("refresh_token", { httpOnly: true, secure: false, sameSite: "None", path: "/" });
   res.json({ message: "Logged out" });
 });
 
