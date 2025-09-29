@@ -142,7 +142,9 @@ app.post("/api/login", async (req, res) => {
 
     setCookie(req, res, "access_token", accessToken, 15 * 60 * 1000);
     setCookie(req, res, "refresh_token", refreshToken, 7 * 24 * 60 * 60 * 1000);
-
+    console.log('LOGIN debug:', { hostname: req.hostname, secure: req.secure, xfproto: req.headers['x-forwarded-proto'] });
+    console.log('LOGIN set-cookie header:', res.getHeader('Set-Cookie'));
+    console.log('LOGIN req.cookies before set:', req.cookies);
     res.json({ message: "Logged in!" });
   } catch {
     res.status(500).json({ message: "Server error" });
@@ -183,6 +185,7 @@ app.post("/api/logout", (req, res) => {
 
 // ===== PROTECTED =====
 app.get("/api/me", async (req, res) => {
+  console.log('ME debug:', { hostname: req.hostname, secure: req.secure, xfproto: req.headers['x-forwarded-proto'], cookies: req.cookies });
   const token = req.cookies.access_token;
   if (!token) return res.status(401).json({ message: "No token" });
 
