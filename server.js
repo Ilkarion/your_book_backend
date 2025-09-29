@@ -12,12 +12,14 @@ dotenv.config();
 
 const app = express();
 
+// ===== TRUST PROXY (нужно для Render, локально не мешает) =====
+app.set("trust proxy", 1);
+
 // ===== CORS =====
 const allowedOrigins = [
   "http://localhost:3000",
   "https://your-book-plen.vercel.app",
 ];
-
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -39,7 +41,10 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_API
 
 // ===== BREVO =====
 const client = new SibApiV3Sdk.TransactionalEmailsApi();
-client.setApiKey(SibApiV3Sdk.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY);
+client.setApiKey(
+  SibApiV3Sdk.TransactionalEmailsApiApiKeys.apiKey,
+  process.env.BREVO_API_KEY
+);
 
 async function sendVerification(email, token) {
   await client.sendTransacEmail({
@@ -57,12 +62,17 @@ const REFRESH_SECRET = process.env.REFRESH_SECRET;
 const REFRESH_EXPIRE = process.env.REFRESH_EXPIRE;
 
 // ===== Helpers =====
-function setCookie(res, name, value, maxAge) {
-  const isProd = process.env.NODE_ENV === "production";
+function setCookie(req, res, name, value, maxAge) {
+  const isLocal =
+    req.hostname === "localhost" ||
+    req.hostname === "127.0.0.1";
+  const isSecure =
+    !isLocal && (req.secure || req.headers["x-forwarded-proto"] === "https");
+
   res.cookie(name, value, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: "None",
+    secure: isSecure,
+    sameSite: isLocal ? "Lax" : "None",
     maxAge,
     path: "/",
   });
@@ -74,18 +84,18 @@ app.post("/api/register", async (req, res) => {
   const hashed = await bcrypt.hash(password, 10);
   const confirmToken = crypto.randomBytes(32).toString("hex");
 
-  const { data, error } = await supabase.from("users").insert([
-    { email, password: hashed, confirm_token: confirmToken },
-  ]);
+  const { error } = await supabase
+    .from("users")
+    .insert([{ email, password: hashed, confirm_token: confirmToken }]);
 
   if (error) return res.status(400).json({ message: error.message });
 
   try {
     await sendVerification(email, confirmToken);
-    return res.status(200).json({ message: "Registered!" });
+    res.status(200).json({ message: "Registered!" });
   } catch (e) {
     console.error("Email send failed", e);
-    return res.status(500).json({ message: "Email send failed" });
+    res.status(500).json({ message: "Email send failed" });
   }
 });
 
@@ -99,9 +109,8 @@ app.get("/api/confirm", async (req, res) => {
     const { data, error } = await supabase.rpc("confirm_email", { token });
     if (error) return res.status(400).send("Confirmation error");
     if (!data?.[0]?.success) return res.status(400).send("Invalid token");
-
     res.send("Email confirmed! You can now login.");
-  } catch (err) {
+  } catch {
     res.status(500).send("Server error");
   }
 });
@@ -109,8 +118,8 @@ app.get("/api/confirm", async (req, res) => {
 // ===== LOGIN =====
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
-
-  if (!email || !password) return res.status(400).json({ message: "Email and password required" });
+  if (!email || !password)
+    return res.status(400).json({ message: "Email and password required" });
 
   try {
     const { data: user, error } = await supabase
@@ -119,20 +128,23 @@ app.post("/api/login", async (req, res) => {
       .eq("email", email)
       .single();
 
-    if (error || !user) return res.status(400).json({ message: "Invalid email or password" });
-    if (!user.is_confirmed) return res.status(403).json({ message: "Email not confirmed" });
+    if (error || !user)
+      return res.status(400).json({ message: "Invalid email or password" });
+    if (!user.is_confirmed)
+      return res.status(403).json({ message: "Email not confirmed" });
 
     const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.status(400).json({ message: "Invalid email or password" });
+    if (!valid)
+      return res.status(400).json({ message: "Invalid email or password" });
 
     const accessToken = jwt.sign({ email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
     const refreshToken = jwt.sign({ email }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRE });
 
-    setCookie(res, "access_token", accessToken, 15 * 60 * 1000);
-    setCookie(res, "refresh_token", refreshToken, 7 * 24 * 60 * 60 * 1000);
+    setCookie(req, res, "access_token", accessToken, 15 * 60 * 1000);
+    setCookie(req, res, "refresh_token", refreshToken, 7 * 24 * 60 * 60 * 1000);
 
     res.json({ message: "Logged in!" });
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -144,19 +156,28 @@ app.post("/api/refresh", (req, res) => {
 
   try {
     const payload = jwt.verify(refresh_token, REFRESH_SECRET);
-    const accessToken = jwt.sign({ email: payload.email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
-    setCookie(res, "access_token", accessToken, 15 * 60 * 1000);
+    const accessToken = jwt.sign(
+      { email: payload.email },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRE }
+    );
+    setCookie(req, res, "access_token", accessToken, 15 * 60 * 1000);
     res.json({ message: "Token refreshed" });
-  } catch (err) {
+  } catch {
     res.status(401).json({ message: "Invalid refresh token" });
   }
 });
 
 // ===== LOGOUT =====
 app.post("/api/logout", (req, res) => {
-  const isProd = process.env.NODE_ENV === "production";
-  res.clearCookie("access_token", { httpOnly: true, secure: isProd, sameSite: "None", path: "/" });
-  res.clearCookie("refresh_token", { httpOnly: true, secure: isProd, sameSite: "None", path: "/" });
+  const isLocal =
+    req.hostname === "localhost" ||
+    req.hostname === "127.0.0.1";
+  const isSecure =
+    !isLocal && (req.secure || req.headers["x-forwarded-proto"] === "https");
+
+  res.clearCookie("access_token", { httpOnly: true, secure: isSecure, sameSite: isLocal ? "Lax" : "None", path: "/" });
+  res.clearCookie("refresh_token", { httpOnly: true, secure: isSecure, sameSite: isLocal ? "Lax" : "None", path: "/" });
   res.json({ message: "Logged out" });
 });
 
@@ -175,7 +196,7 @@ app.get("/api/me", async (req, res) => {
 
     if (error || !user) return res.status(404).json({ message: "User not found" });
     res.json({ user });
-  } catch (err) {
+  } catch {
     res.status(401).json({ message: "Invalid token" });
   }
 });
@@ -184,4 +205,6 @@ app.get("/api/me", async (req, res) => {
 app.get("/api/ping", (req, res) => res.json({ status: "ok" }));
 
 // ===== START SERVER =====
-app.listen(process.env.PORT, () => console.log(`Server running on port ${process.env.PORT}`));
+app.listen(process.env.PORT, () =>
+  console.log(`Server running on port ${process.env.PORT}`)
+);
