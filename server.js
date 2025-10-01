@@ -63,16 +63,11 @@ const REFRESH_EXPIRE = process.env.REFRESH_EXPIRE;
 
 // ===== Helpers =====
 function setCookie(req, res, name, value, maxAge) {
-  const isLocal =
-    req.hostname === "localhost" ||
-    req.hostname === "127.0.0.1";
-  const isSecure =
-    !isLocal && (req.secure || req.headers["x-forwarded-proto"] === "https");
 
   res.cookie(name, value, {
     httpOnly: true,
-    secure: false,
-    sameSite: "None",
+    secure: true,
+    sameSite: "Lax",
     maxAge,
     path: "/",
   });
@@ -172,14 +167,9 @@ app.post("/api/refresh", (req, res) => {
 
 // ===== LOGOUT =====
 app.post("/api/logout", (req, res) => {
-  const isLocal =
-    req.hostname === "localhost" ||
-    req.hostname === "127.0.0.1";
-  const isSecure =
-    !isLocal && (req.secure || req.headers["x-forwarded-proto"] === "https");
 
-  res.clearCookie("access_token", { httpOnly: true, secure: false, sameSite: "None", path: "/" });
-  res.clearCookie("refresh_token", { httpOnly: true, secure: false, sameSite: "None", path: "/" });
+  res.clearCookie("access_token", { httpOnly: true, secure: true, sameSite: "Strict", path: "/" });
+  res.clearCookie("refresh_token", { httpOnly: true, secure: true, sameSite: "Strict", path: "/" });
   res.json({ message: "Logged out" });
 });
 
