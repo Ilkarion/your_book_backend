@@ -12,31 +12,15 @@ dotenv.config();
 
 const app = express();
 
-// ===== TRUST PROXY (нужно для Render, локально не мешает) =====
-app.set("trust proxy", 1);
-
-// ===== CORS =====
-const allowedOrigins = [
-  "http://localhost:3000",
-  "https://your-book-plen.vercel.app",
-];
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-  })
-);
-
+// ===== MIDDLEWARE =====
+app.use(cors({
+  origin: ["http://localhost:3000", "https://your-book-plen.vercel.app"],
+  credentials: true
+}));
 app.use(express.json());
 app.use(cookieParser());
 
-// ===== Supabase =====
+// ===== SUPABASE =====
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_API_KEY);
 
 // ===== BREVO =====
@@ -55,42 +39,33 @@ async function sendVerification(email, token) {
   });
 }
 
-// ===== JWT =====
+// ===== CONFIG =====
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRE = process.env.JWT_EXPIRE;
+const JWT_EXPIRE = process.env.JWT_EXPIRE; // e.g. "15m"
 const REFRESH_SECRET = process.env.REFRESH_SECRET;
-const REFRESH_EXPIRE = process.env.REFRESH_EXPIRE;
-
-// ===== Helpers =====
-function setCookie(req, res, name, value, maxAge) {
-
-  res.cookie(name, value, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "Lax",
-    maxAge,
-    path: "/",
-  });
-}
+const REFRESH_EXPIRE = process.env.REFRESH_EXPIRE; // e.g. "7d"
 
 // ===== REGISTER =====
 app.post("/api/register", async (req, res) => {
   const { email, password } = req.body;
-  const hashed = await bcrypt.hash(password, 10);
-  const confirmToken = crypto.randomBytes(32).toString("hex");
-
-  const { error } = await supabase
-    .from("users")
-    .insert([{ email, password: hashed, confirm_token: confirmToken }]);
-
-  if (error) return res.status(400).json({ message: error.message });
+  if (!email || !password)
+    return res.status(400).json({ message: "Email and password required" });
 
   try {
+    const hashed = await bcrypt.hash(password, 10);
+    const confirmToken = crypto.randomBytes(32).toString("hex");
+
+    const { error } = await supabase
+      .from("users")
+      .insert([{ email, password: hashed, confirm_token: confirmToken }]);
+
+    if (error) return res.status(400).json({ message: error.message });
+
     await sendVerification(email, confirmToken);
-    res.status(200).json({ message: "Registered!" });
+    res.status(200).json({ message: "Registered! Check your email to confirm." });
   } catch (e) {
-    console.error("Email send failed", e);
-    res.status(500).json({ message: "Email send failed" });
+    console.error("Register error:", e);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -100,12 +75,13 @@ app.get("/api/confirm", async (req, res) => {
   if (!token) return res.status(400).send("The token is missing");
 
   try {
-    await supabase.rpc("set_token", { token_value: token });
     const { data, error } = await supabase.rpc("confirm_email", { token });
-    if (error) return res.status(400).send("Confirmation error");
-    if (!data?.[0]?.success) return res.status(400).send("Invalid token");
+    if (error || !data?.[0]?.success) {
+      return res.status(400).send("Invalid or expired token");
+    }
+
     res.send("Email confirmed! You can now login.");
-  } catch {
+  } catch (err) {
     res.status(500).send("Server error");
   }
 });
@@ -125,6 +101,7 @@ app.post("/api/login", async (req, res) => {
 
     if (error || !user)
       return res.status(400).json({ message: "Invalid email or password" });
+
     if (!user.is_confirmed)
       return res.status(403).json({ message: "Email not confirmed" });
 
@@ -132,72 +109,85 @@ app.post("/api/login", async (req, res) => {
     if (!valid)
       return res.status(400).json({ message: "Invalid email or password" });
 
+    // Генерим токены
     const accessToken = jwt.sign({ email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
     const refreshToken = jwt.sign({ email }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRE });
 
-    setCookie(req, res, "access_token", accessToken, 15 * 60 * 1000);
-    setCookie(req, res, "refresh_token", refreshToken, 7 * 24 * 60 * 60 * 1000);
-    console.log('LOGIN debug:', { hostname: req.hostname, secure: req.secure, xfproto: req.headers['x-forwarded-proto'] });
-    console.log('LOGIN set-cookie header:', res.getHeader('Set-Cookie'));
-    console.log('LOGIN req.cookies before set:', req.cookies);
-    res.json({ message: "Logged in!" });
-  } catch {
+    // Кладём Оба токена в HttpOnly cookies
+    res.cookie("access_token", accessToken, {
+      httpOnly: true,
+      maxAge: 15 * 60 * 1000 // 15 минут (или как в JWT_EXPIRE)
+    });
+
+    res.cookie("refresh_token", refreshToken, {
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 дней
+    });
+
+    // Теперь JSON не нужен — браузер сам будет отправлять куки
+    res.status(200).json({ message: "Logged in" });
+  } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// ===== REFRESH TOKEN =====
+
+// ===== REFRESH =====
 app.post("/api/refresh", (req, res) => {
-  const { refresh_token } = req.cookies;
-  if (!refresh_token) return res.status(401).json({ message: "No refresh token" });
+  const refreshToken = req.cookies.refresh_token;
+  if (!refreshToken) return res.status(401).json({ message: "No refresh token" });
 
   try {
-    const payload = jwt.verify(refresh_token, REFRESH_SECRET);
-    const accessToken = jwt.sign(
-      { email: payload.email },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRE }
-    );
-    setCookie(req, res, "access_token", accessToken, 15 * 60 * 1000);
-    res.json({ message: "Token refreshed" });
-  } catch {
+    const payload = jwt.verify(refreshToken, REFRESH_SECRET);
+    const newAccess = jwt.sign({ email: payload.email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
+
+    res.cookie("access_token", newAccess, {
+      httpOnly: true,
+      maxAge: 15 * 60 * 1000
+    });
+
+    res.status(200).json({ message: "Token refreshed" });
+  } catch (err) {
     res.status(401).json({ message: "Invalid refresh token" });
   }
 });
 
-// ===== LOGOUT =====
-app.post("/api/logout", (req, res) => {
-
-  res.clearCookie("access_token", { httpOnly: true, secure: true, sameSite: "Strict", path: "/" });
-  res.clearCookie("refresh_token", { httpOnly: true, secure: true, sameSite: "Strict", path: "/" });
-  res.json({ message: "Logged out" });
-});
 
 // ===== PROTECTED =====
 app.get("/api/me", async (req, res) => {
-  console.log('ME debug:', { hostname: req.hostname, secure: req.secure, xfproto: req.headers['x-forwarded-proto'], cookies: req.cookies });
-  const token = req.cookies.access_token;
-  if (!token) return res.status(401).json({ message: "No token" });
+  const token = req.cookies.access_token; // достаём из cookie
+  if (!token) return res.status(403).json({ message: "No token" });
 
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const { data: user, error } = await supabase
+
+    const { data: user } = await supabase
       .from("users")
       .select("email, created_at")
       .eq("email", payload.email)
       .single();
 
-    if (error || !user) return res.status(404).json({ message: "User not found" });
-    res.json({ user });
-  } catch {
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.status(200).json({ user });
+  } catch (err) {
     res.status(401).json({ message: "Invalid token" });
   }
 });
 
-// ===== PING =====
-app.get("/api/ping", (req, res) => res.json({ status: "ok" }));
+
+// ===== LOGOUT =====
+app.post("/api/logout", (req, res) => {
+  res.clearCookie("access_token", { httpOnly: true, path: "/" });
+  res.clearCookie("refresh_token", { httpOnly: true, path: "/" });
+  res.status(200).json({ message: "Logged out" });
+});
+
+// ===== KEEP SERVER ALIVE =====
+app.get("/api/ping", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
 
 // ===== START SERVER =====
 app.listen(process.env.PORT, () =>
-  console.log(`Server running on port ${process.env.PORT}`)
+  console.log(`Server running on http://localhost:${process.env.PORT}`)
 );
