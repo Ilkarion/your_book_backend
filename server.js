@@ -38,7 +38,16 @@ async function sendVerification(email, token) {
     htmlContent: `<a href="${process.env.SERVER_URL}/api/confirm?token=${token}">Verify email</a>`,
   });
 }
+const securityCookie = process.env.PROD
+let sameSiteCookie = "none"
+if(!process.env.PROD) {
+  sameSiteCookie = "lax"
+}else {sameSiteCookie = "none"}
 
+console.log({
+      secure: securityCookie,
+      sameSite: sameSiteCookie,
+})
 // ===== CONFIG =====
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRE = process.env.JWT_EXPIRE; // e.g. "15m"
@@ -112,20 +121,23 @@ app.post("/api/login", async (req, res) => {
     // Генерим токены
     const accessToken = jwt.sign({ email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
     const refreshToken = jwt.sign({ email }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRE });
-
+    
     // Кладём Оба токена в HttpOnly cookies
     res.cookie("access_token", accessToken, {
       httpOnly: true,
+      secure: securityCookie,
+      sameSite: sameSiteCookie,
       maxAge: 15 * 60 * 1000 // 15 минут (или как в JWT_EXPIRE)
     });
-
     res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
+      secure: securityCookie,
+      sameSite: sameSiteCookie,
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 дней
     });
 
     // Теперь JSON не нужен — браузер сам будет отправлять куки
-    res.status(200).json({ message: "Logged in" });
+    res.status(200).json({ message: "Logged in!" });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
@@ -143,6 +155,8 @@ app.post("/api/refresh", (req, res) => {
 
     res.cookie("access_token", newAccess, {
       httpOnly: true,
+      secure: securityCookie,
+      sameSite: sameSiteCookie,
       maxAge: 15 * 60 * 1000
     });
 
