@@ -14,7 +14,7 @@ const app = express();
 
 // ===== MIDDLEWARE =====
 app.use(cors({
-  origin: ["http://localhost:3000", "https://your-book-plen.vercel.app"],
+  origin: ["http://localhost:3000", "https://your-book-plen-7ykl6cdsp-ilkarions-projects.vercel.app"],
   credentials: true
 }));
 app.use(express.json());
