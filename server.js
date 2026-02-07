@@ -14,7 +14,7 @@ const app = express();
 
 // ===== MIDDLEWARE =====
 app.use(cors({
-  origin: ["http://localhost:3000", "https://diary-cosmic-q46z.vercel.app/"],
+  origin: ["http://localhost:3000", "https://diary-cosmic-q46z.vercel.app"],
   credentials: true
 }));
 app.use(express.json());
