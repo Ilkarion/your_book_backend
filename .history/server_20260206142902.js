@@ -20,13 +20,6 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
-
-// app.use((req, res, next) => {
-//   console.log(req.method, req.url);
-//   next();
-// });
-
-
 // ===== SUPABASE =====
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_API_KEY);
 
@@ -177,7 +170,7 @@ app.post("/api/refresh", (req, res) => {
       httpOnly: true,
       secure: securityCookie,
       sameSite: sameSiteCookie,
-      maxAge: 15 * 60 * 1000
+      maxAge: 10 * 60 * 1000
     });
 
     res.status(200).json({ message: "Token refreshed" });
@@ -339,6 +332,52 @@ app.post("/api/diary-send", async (req, res) => {
   }
 });
 
+app.post("/api/diary-edit", async (req, res) => {
+  const token = req.cookies.access_token;
+  const updatedRecord = req.body.record_id; // одна обновлённая запись с id
+
+  if (!token) return res.status(403).json({ message: "No token" });
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+
+    const { data: user, error: userError } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", payload.email)
+      .single();
+
+    if (userError || !user)
+      return res.status(404).json({ message: "User not found" });
+
+    const { data: existing, error: existingError } = await supabase
+      .from("usersRecords")
+      .select("*")
+      .eq("id_user", user.id)
+      .single();
+
+    if (existingError || !existing)
+      return res.status(400).json({ message: "No records to edit" });
+
+    const updatedRecords = existing.records.map((rec) =>
+      rec.id === updatedRecord.id ? updatedRecord : rec
+    );
+
+    const { error: updateError } = await supabase
+      .from("usersRecords")
+      .update({ records: updatedRecords })
+      .eq("id_user", user.id);
+
+    if (updateError)
+      return res.status(400).json({ message: updateError.message });
+
+    res.status(200).json({ message: "Record updated" });
+
+  } catch (err) {
+    console.error(err);
+    res.status(401).json({ message: "Invalid token" });
+  }
+});
 
 
 app.post("/api/diary-allTags", async (req, res) => {
@@ -388,6 +427,7 @@ app.post("/api/diary-allTags", async (req, res) => {
 app.get("/api/diary-record/:id", async (req, res) => {
   const token = req.cookies.access_token;
   const recordId = req.params.id;
+
   if (!token) return res.status(403).json({ message: "No token" });
 
   try {
@@ -406,49 +446,25 @@ app.get("/api/diary-record/:id", async (req, res) => {
       .eq("id_record", recordId)
       .single();
 
-    const { data: all_Tags, all_TagsError } = await supabase
-      .from("usersTags")
-      .select("*")
-      .eq("id_user", user.id)
-      .single();
-
     if (error || !record) {
       return res.status(404).json({ message: "Record not found" });
-    } else if(all_TagsError) {
-      return res.status(404).json({ message: "All Tags was not found" });
     }
 
-    res.json({
-      id_record: record.id_record,
-      id_user: user.id,
-      title: record.title,
-      date: record.date,
-      feels: record.feels,
-      tags: record.tags,
-      color_Tags: record.color_Tags,
-      highlights: record.highlights,
-
-      all_Tags: record.all_Tags,
-      all_Color_Tags: record.all_Color_Tags
-    });
+    res.json(record);
 
   } catch (err) {
     res.status(401).json({ message: "Invalid token" });
   }
 });
 
-//edit record by idhttp://localhost:3001/api/diary-edit
+//edit record by id
 app.post("/api/diary-edit", async (req, res) => {
-
   const token = req.cookies.access_token;
-  const updatedRecord = req.body.record;
-
-
+  const updatedRecord = req.body.record; // updated record, and its id_record
+  console.log("record: "+updatedRecord)
   if (!token) return res.status(403).json({ message: "No token" });
 
   try {
-    console.log(updatedRecord.all_Color_Tags)
-    console.log(updatedRecord.all_Tags)
     const payload = jwt.verify(token, JWT_SECRET);
 
     const { data: user, error: userError } = await supabase
@@ -457,8 +473,11 @@ app.post("/api/diary-edit", async (req, res) => {
       .eq("email", payload.email)
       .single();
 
-
-    const { data, error } = await supabase
+    if (userError || !user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    console.log(updatedRecord)
+    const { error: updateError } = await supabase
       .from("usersRecords")
       .update({
         title: updatedRecord.title,
@@ -466,77 +485,22 @@ app.post("/api/diary-edit", async (req, res) => {
         feels: updatedRecord.feels,
         highlights: updatedRecord.highlights,
         tags: updatedRecord.tags,
-        color_Tags: updatedRecord.color_Tags,
+        color_tags: updatedRecord.color_tags,
       })
       .eq("id_user", user.id)
-      .eq("id_record", updatedRecord.id_record)
-      .select();
+      .eq("id_record", updatedRecord.id_record);
 
-    const { data: allTagsData, error: allTagsError } = await supabase
-      .from("usersTags")
-      .update({
-        all_Tags: updatedRecord.all_Tags,
-        all_Color_Tags: updatedRecord.all_Color_Tags
-      })
-      .eq("id_user", user.id);
-
-    if (allTagsError) {
-      return res.status(400).json({ message: allTagsError.message });
+    if (updateError) {
+      return res.status(400).json({ message: updateError.message });
     }
-    if (error) return res.status(400).json({ message: error.message });
-    if (!data || data.length === 0) {
-      return res.status(404).json({ message: "Record not found" });
-    }
-      
 
     res.status(200).json({ message: "Record updated" });
+
   } catch (err) {
-    console.log("Error")
     console.error(err);
     res.status(401).json({ message: "Invalid token" });
   }
 });
-
-
-//delete record by id
-app.delete("/api/diary-delete/:id", async (req, res) => {
-  const token = req.cookies.access_token;
-  const recordId = req.params.id;
-
-  if (!token) return res.status(403).json({ message: "No token" });
-
-  let payload;
-  try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch (e) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
-
-  try {
-    const { data: user, error: userError } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", payload.email)
-      .single();
-
-    if (userError || !user)
-      return res.status(404).json({ message: "User not found" });
-
-    const { error } = await supabase
-      .from("usersRecords")
-      .delete()
-      .eq("id_user", user.id)
-      .eq("id_record", recordId);
-
-    if (error) return res.status(400).json({ message: error.message });
-
-    return res.status(200).json({ message: "Record deleted" });
-  } catch (err) {
-    console.error("Server error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
-
 
 
 

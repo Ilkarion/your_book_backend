@@ -243,7 +243,7 @@ app.post("/api/diary", async (req, res) => {
       .from("usersRecords")
       .select("*")
       .eq("id_user", user.id)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true });
 
     if (diaryRecordsError)
       return res.status(400).json({ message: diaryRecordsError.message });

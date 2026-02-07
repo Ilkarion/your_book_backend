@@ -177,7 +177,7 @@ app.post("/api/refresh", (req, res) => {
       httpOnly: true,
       secure: securityCookie,
       sameSite: sameSiteCookie,
-      maxAge: 15 * 60 * 1000
+      maxAge: 10 * 60 * 1000
     });
 
     res.status(200).json({ message: "Token refreshed" });
@@ -406,31 +406,11 @@ app.get("/api/diary-record/:id", async (req, res) => {
       .eq("id_record", recordId)
       .single();
 
-    const { data: all_Tags, all_TagsError } = await supabase
-      .from("usersTags")
-      .select("*")
-      .eq("id_user", user.id)
-      .single();
-
     if (error || !record) {
       return res.status(404).json({ message: "Record not found" });
-    } else if(all_TagsError) {
-      return res.status(404).json({ message: "All Tags was not found" });
     }
 
-    res.json({
-      id_record: record.id_record,
-      id_user: user.id,
-      title: record.title,
-      date: record.date,
-      feels: record.feels,
-      tags: record.tags,
-      color_Tags: record.color_Tags,
-      highlights: record.highlights,
-
-      all_Tags: record.all_Tags,
-      all_Color_Tags: record.all_Color_Tags
-    });
+    res.json(record);
 
   } catch (err) {
     res.status(401).json({ message: "Invalid token" });
@@ -447,9 +427,9 @@ app.post("/api/diary-edit", async (req, res) => {
   if (!token) return res.status(403).json({ message: "No token" });
 
   try {
-    console.log(updatedRecord.all_Color_Tags)
-    console.log(updatedRecord.all_Tags)
+    console.log("try block")
     const payload = jwt.verify(token, JWT_SECRET);
+    console.log("payload:", payload);
 
     const { data: user, error: userError } = await supabase
       .from("users")
@@ -457,6 +437,7 @@ app.post("/api/diary-edit", async (req, res) => {
       .eq("email", payload.email)
       .single();
 
+    console.log("user found:", user);
 
     const { data, error } = await supabase
       .from("usersRecords")
@@ -466,28 +447,15 @@ app.post("/api/diary-edit", async (req, res) => {
         feels: updatedRecord.feels,
         highlights: updatedRecord.highlights,
         tags: updatedRecord.tags,
-        color_Tags: updatedRecord.color_Tags,
+        color_tags: updatedRecord.color_tags,
       })
       .eq("id_user", user.id)
       .eq("id_record", updatedRecord.id_record)
       .select();
 
-    const { data: allTagsData, error: allTagsError } = await supabase
-      .from("usersTags")
-      .update({
-        all_Tags: updatedRecord.all_Tags,
-        all_Color_Tags: updatedRecord.all_Color_Tags
-      })
-      .eq("id_user", user.id);
-
-    if (allTagsError) {
-      return res.status(400).json({ message: allTagsError.message });
-    }
     if (error) return res.status(400).json({ message: error.message });
-    if (!data || data.length === 0) {
+    if (!data || data.length === 0)
       return res.status(404).json({ message: "Record not found" });
-    }
-      
 
     res.status(200).json({ message: "Record updated" });
   } catch (err) {
@@ -496,47 +464,6 @@ app.post("/api/diary-edit", async (req, res) => {
     res.status(401).json({ message: "Invalid token" });
   }
 });
-
-
-//delete record by id
-app.delete("/api/diary-delete/:id", async (req, res) => {
-  const token = req.cookies.access_token;
-  const recordId = req.params.id;
-
-  if (!token) return res.status(403).json({ message: "No token" });
-
-  let payload;
-  try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch (e) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
-
-  try {
-    const { data: user, error: userError } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", payload.email)
-      .single();
-
-    if (userError || !user)
-      return res.status(404).json({ message: "User not found" });
-
-    const { error } = await supabase
-      .from("usersRecords")
-      .delete()
-      .eq("id_user", user.id)
-      .eq("id_record", recordId);
-
-    if (error) return res.status(400).json({ message: error.message });
-
-    return res.status(200).json({ message: "Record deleted" });
-  } catch (err) {
-    console.error("Server error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
-
 
 
 

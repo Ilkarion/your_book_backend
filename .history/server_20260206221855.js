@@ -505,14 +505,10 @@ app.delete("/api/diary-delete/:id", async (req, res) => {
 
   if (!token) return res.status(403).json({ message: "No token" });
 
-  let payload;
   try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch (e) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
+    const payload = jwt.verify(token, JWT_SECRET);
 
-  try {
+    // найти пользователя
     const { data: user, error: userError } = await supabase
       .from("users")
       .select("id")
@@ -522,21 +518,23 @@ app.delete("/api/diary-delete/:id", async (req, res) => {
     if (userError || !user)
       return res.status(404).json({ message: "User not found" });
 
-    const { error } = await supabase
+    // удалить запись
+    const { data, error } = await supabase
       .from("usersRecords")
       .delete()
       .eq("id_user", user.id)
-      .eq("id_record", recordId);
+      .eq("id_record", recordId)
 
     if (error) return res.status(400).json({ message: error.message });
+    if (!data || data.length === 0)
+      return res.status(404).json({ message: "Record not found" });
 
-    return res.status(200).json({ message: "Record deleted" });
+    res.status(200).json({ message: "Record deleted", deleted: data[0] });
   } catch (err) {
-    console.error("Server error:", err);
-    return res.status(500).json({ message: "Server error" });
+    console.error(err);
+    res.status(401).json({ message: "Invalid token" });
   }
 });
-
 
 
 

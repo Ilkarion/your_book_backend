@@ -20,13 +20,6 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
-
-// app.use((req, res, next) => {
-//   console.log(req.method, req.url);
-//   next();
-// });
-
-
 // ===== SUPABASE =====
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_API_KEY);
 
@@ -81,6 +74,21 @@ app.post("/api/register", async (req, res) => {
       .single();
 
     if (userError) return res.status(400).json({ message: userError.message });
+
+    // 2. Insert into usersRecords
+    const { error: recordsError } = await supabase
+      .from("usersRecords")
+      .insert([{ id_user: userData.id,
+            title: "",
+            date: "",
+            feels: [],
+            tags: [],
+            color_Tags: [],
+            highlights: []
+       }]);
+
+    if (recordsError)
+      return res.status(400).json({ message: recordsError.message });
 
     // 3. Send email
     try {
@@ -177,7 +185,7 @@ app.post("/api/refresh", (req, res) => {
       httpOnly: true,
       secure: securityCookie,
       sameSite: sameSiteCookie,
-      maxAge: 15 * 60 * 1000
+      maxAge: 10 * 60 * 1000
     });
 
     res.status(200).json({ message: "Token refreshed" });
@@ -230,6 +238,7 @@ app.post("/api/diary", async (req, res) => {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
 
+    // === Найдём пользователя ===
     const { data: user, error: userError } = await supabase
       .from("users")
       .select("id")
@@ -239,6 +248,66 @@ app.post("/api/diary", async (req, res) => {
     if (userError || !user)
       return res.status(404).json({ message: "User not found" });
 
+    // === Проверим, есть ли запись в usersRecords ===
+    const { data: record, error: recordError } = await supabase
+      .from("usersRecords")
+      .select("*")
+      .eq("id_user", user.id)
+      .single();
+
+    if (recordError && recordError.code !== "PGRST116") {
+      return res.status(400).json({ message: recordError.message });
+    }
+
+    // === Если записи нет — создаём новую ===
+    if (!record) {
+      const { error: insertError } = await supabase
+        .from("usersRecords")
+        .insert([
+          {
+            id_user: user.id,
+            title: "",
+            date: "",
+            feels: [],
+            tags: [],
+            color_Tags: [],
+            highlights: []
+          },
+        ]);
+
+      if (insertError)
+        return res.status(400).json({ message: insertError.message });
+    }
+
+    //----------------------------------------------------
+    // === Проверим, есть ли запись в usersTags ===
+    const { data: tags, error: tagsError } = await supabase
+      .from("usersTags")
+      .select("*")
+      .eq("id_user", user.id)
+      .single();
+
+    if (tagsError && tagsError.code !== "PGRST116") {
+      return res.status(400).json({ message: tagsError.message });
+    }
+
+    // === Если записи нет — создаём новую ===
+    if (!tags) {
+      const { error: insertTagsError } = await supabase
+        .from("usersTags")
+        .insert([
+          {
+            id_user: user.id,
+            allTags: [],
+            all_Color_Tags: []
+          },
+        ]);
+
+      if (insertTagsError)
+        return res.status(400).json({ message: insertTagsError.message });
+    }
+
+    // === Получим записи пользователя ===
     const { data: diaryRecords, error: diaryRecordsError } = await supabase
       .from("usersRecords")
       .select("*")
@@ -248,6 +317,7 @@ app.post("/api/diary", async (req, res) => {
     if (diaryRecordsError)
       return res.status(400).json({ message: diaryRecordsError.message });
 
+    // === Получим теги пользователя ===
     const { data: diaryAllTags, error: diaryAllTagsError } = await supabase
       .from("usersTags")
       .select("*")
@@ -257,10 +327,7 @@ app.post("/api/diary", async (req, res) => {
     if (diaryAllTagsError && diaryAllTagsError.code !== "PGRST116")
       return res.status(400).json({ message: diaryAllTagsError.message });
 
-    res.status(200).json({
-      diaryRecords: diaryRecords ?? [],
-      diaryAllTags: diaryAllTags ?? [],
-    });
+    res.status(200).json({ diaryRecords, diaryAllTags });
 
   } catch (err) {
     console.error("JWT error:", err);
@@ -269,27 +336,17 @@ app.post("/api/diary", async (req, res) => {
 });
 
 
-
 app.post("/api/diary-send", async (req, res) => {
   const token = req.cookies.access_token;
-  const {
-    title: title,
-    date: date,
-    feels: feels,
-    tags: tags,
-    color_Tags: color_Tags,
-    highlights: highlights,
-
-    all_Tags: all_Tags,
-    all_Color_Tags: all_Color_Tags
-  } = req.body
+  const recordsJSON = req.body.records; // [{ content, tags, date }, ...]
 
   if (!token) return res.status(403).json({ message: "No token" });
 
   try {
+    // Проверяем токен
     const payload = jwt.verify(token, JWT_SECRET);
 
-    //find user
+    // Получаем пользователя
     const { data: user, error: userError } = await supabase
       .from("users")
       .select("id")
@@ -299,243 +356,53 @@ app.post("/api/diary-send", async (req, res) => {
     if (userError || !user)
       return res.status(404).json({ message: "User not found" });
 
-    //insert into users records
-    const { error: insertError } = await supabase
-      .from("usersRecords")
-      .insert([{ 
-        id_user: user.id,
-        title: title,
-        date: date,
-        feels: feels,
-        tags: tags,
-        color_Tags: color_Tags,
-        highlights: highlights
-      }]);
-
-    if(insertError && insertError.code !== "PGRST116") {
-      return res.status(400).json({ message: insertError.message });
-    }
-
-    //insert into usersTags
-    const { error: insertErrorTags } = await supabase
-      .from("usersTags")
-      .upsert(
-        [{
-          id_user: user.id,
-          all_Tags: all_Tags,
-          all_Color_Tags: all_Color_Tags
-        }],
-        { onConflict: "id_user" } // если запись с таким id_user уже есть — заменяем её
-      );
-
-    if(insertErrorTags && insertErrorTags.code !== "PGRST116") {
-      return res.status(400).json({ message: insertErrorTags.message });
-    }
-    res.status(200).json({ message: "Record and tags added" });
-
-  } catch (err) {
-    console.error(err);
-    res.status(401).json({ message: err.message });
-  }
-});
-
-
-
-app.post("/api/diary-allTags", async (req, res) => {
-  const token = req.cookies.access_token;
-
-  if (!token) return res.status(403).json({ message: "No token" });
-
-  let payload;
-  try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch (err) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
-
-  try {
-    const { data: user, error: userError } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", payload.email)
-      .single();
-
-    if (userError || !user)
-      return res.status(404).json({ message: "User not found" });
-
-    const { data: allTags, error: allTagsError } = await supabase
-      .from("usersTags")
-      .select("*")
-      .eq("id_user", user.id)
-      .single();
-
-    if (allTagsError || !allTags)
-      return res.status(200).json({ message: "No records to edit" });
-
-    // вот ключевая правка
-    return res.status(200).json({
-      all_Tags: allTags.all_Tags,
-      all_Color_Tags: allTags.all_Color_Tags
-    });
-    
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-//get record by id 
-app.get("/api/diary-record/:id", async (req, res) => {
-  const token = req.cookies.access_token;
-  const recordId = req.params.id;
-  if (!token) return res.status(403).json({ message: "No token" });
-
-  try {
-    const payload = jwt.verify(token, JWT_SECRET);
-
-    const { data: user } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", payload.email)
-      .single();
-
-    const { data: record, error } = await supabase
+    // Проверяем, есть ли запись у пользователя
+    const { data: existingRecord, error: recordError } = await supabase
       .from("usersRecords")
       .select("*")
       .eq("id_user", user.id)
-      .eq("id_record", recordId)
       .single();
 
-    const { data: all_Tags, all_TagsError } = await supabase
-      .from("usersTags")
-      .select("*")
-      .eq("id_user", user.id)
-      .single();
+    if (recordError && recordError.code !== "PGRST116")
+      return res.status(400).json({ message: recordError.message });
 
-    if (error || !record) {
-      return res.status(404).json({ message: "Record not found" });
-    } else if(all_TagsError) {
-      return res.status(404).json({ message: "All Tags was not found" });
+    if (existingRecord) {
+      // Если запись есть — обновляем
+      const { error: updateError } = await supabase
+        .from("usersRecords")
+        .update({ records: recordsJSON }) //HEREEEEEE
+        .eq("id_user", user.id);
+
+      if (updateError)
+        return res.status(400).json({ message: updateError.message });
+    } else {
+      // Если записи нет — создаём новую
+      const { error: insertError } = await supabase
+        .from("usersRecords")
+        .insert([{ id_user: user.id, records: recordsJSON }]);
+
+      if (insertError)
+        return res.status(400).json({ message: insertError.message });
     }
 
-    res.json({
-      id_record: record.id_record,
-      id_user: user.id,
-      title: record.title,
-      date: record.date,
-      feels: record.feels,
-      tags: record.tags,
-      color_Tags: record.color_Tags,
-      highlights: record.highlights,
+    // Получаем обновлённые записи
+    const { data: diary, error: diaryError } = await supabase
+      .from("usersRecords")
+      .select("*")
+      .eq("id_user", user.id)
+      .order("created_at", { ascending: false });
 
-      all_Tags: record.all_Tags,
-      all_Color_Tags: record.all_Color_Tags
-    });
+    if (diaryError)
+      return res.status(400).json({ message: diaryError.message });
+
+    res.status(200).json({ diary });
 
   } catch (err) {
     res.status(401).json({ message: "Invalid token" });
   }
 });
 
-//edit record by idhttp://localhost:3001/api/diary-edit
-app.post("/api/diary-edit", async (req, res) => {
 
-  const token = req.cookies.access_token;
-  const updatedRecord = req.body.record;
-
-
-  if (!token) return res.status(403).json({ message: "No token" });
-
-  try {
-    console.log(updatedRecord.all_Color_Tags)
-    console.log(updatedRecord.all_Tags)
-    const payload = jwt.verify(token, JWT_SECRET);
-
-    const { data: user, error: userError } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", payload.email)
-      .single();
-
-
-    const { data, error } = await supabase
-      .from("usersRecords")
-      .update({
-        title: updatedRecord.title,
-        date: updatedRecord.date,
-        feels: updatedRecord.feels,
-        highlights: updatedRecord.highlights,
-        tags: updatedRecord.tags,
-        color_Tags: updatedRecord.color_Tags,
-      })
-      .eq("id_user", user.id)
-      .eq("id_record", updatedRecord.id_record)
-      .select();
-
-    const { data: allTagsData, error: allTagsError } = await supabase
-      .from("usersTags")
-      .update({
-        all_Tags: updatedRecord.all_Tags,
-        all_Color_Tags: updatedRecord.all_Color_Tags
-      })
-      .eq("id_user", user.id);
-
-    if (allTagsError) {
-      return res.status(400).json({ message: allTagsError.message });
-    }
-    if (error) return res.status(400).json({ message: error.message });
-    if (!data || data.length === 0) {
-      return res.status(404).json({ message: "Record not found" });
-    }
-      
-
-    res.status(200).json({ message: "Record updated" });
-  } catch (err) {
-    console.log("Error")
-    console.error(err);
-    res.status(401).json({ message: "Invalid token" });
-  }
-});
-
-
-//delete record by id
-app.delete("/api/diary-delete/:id", async (req, res) => {
-  const token = req.cookies.access_token;
-  const recordId = req.params.id;
-
-  if (!token) return res.status(403).json({ message: "No token" });
-
-  let payload;
-  try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch (e) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
-
-  try {
-    const { data: user, error: userError } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", payload.email)
-      .single();
-
-    if (userError || !user)
-      return res.status(404).json({ message: "User not found" });
-
-    const { error } = await supabase
-      .from("usersRecords")
-      .delete()
-      .eq("id_user", user.id)
-      .eq("id_record", recordId);
-
-    if (error) return res.status(400).json({ message: error.message });
-
-    return res.status(200).json({ message: "Record deleted" });
-  } catch (err) {
-    console.error("Server error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
 
 
 

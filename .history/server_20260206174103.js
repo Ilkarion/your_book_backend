@@ -498,47 +498,6 @@ app.post("/api/diary-edit", async (req, res) => {
 });
 
 
-//delete record by id
-app.delete("/api/diary-delete/:id", async (req, res) => {
-  const token = req.cookies.access_token;
-  const recordId = req.params.id;
-
-  if (!token) return res.status(403).json({ message: "No token" });
-
-  let payload;
-  try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch (e) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
-
-  try {
-    const { data: user, error: userError } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", payload.email)
-      .single();
-
-    if (userError || !user)
-      return res.status(404).json({ message: "User not found" });
-
-    const { error } = await supabase
-      .from("usersRecords")
-      .delete()
-      .eq("id_user", user.id)
-      .eq("id_record", recordId);
-
-    if (error) return res.status(400).json({ message: error.message });
-
-    return res.status(200).json({ message: "Record deleted" });
-  } catch (err) {
-    console.error("Server error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
-
-
-
 
 // ===== START SERVER =====
 app.listen(process.env.PORT, () =>
