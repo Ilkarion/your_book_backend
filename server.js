@@ -45,15 +45,15 @@ async function sendVerification(email, token) {
     htmlContent: `<a href="${process.env.SERVER_URL}/api/confirm?token=${token}">Verify email</a>`,
   });
 }
-const securityCookie = process.env.PROD
+const securityCookie = true
 let sameSiteCookie = "none"
-if(!process.env.PROD) {
-  sameSiteCookie = "lax"
-}else {sameSiteCookie = "none"}
+// if(!process.env.PROD) {
+//   sameSiteCookie = "lax"
+// }else {sameSiteCookie = "none"}
 
 console.log({
-      secure: true,
-      sameSite: "none",
+      secure: securityCookie,
+      sameSite: sameSiteCookie,
 })
 // ===== CONFIG =====
 const JWT_SECRET = process.env.JWT_SECRET;
