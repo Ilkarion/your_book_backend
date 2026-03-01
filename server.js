@@ -52,8 +52,8 @@ if(!process.env.PROD) {
 }else {sameSiteCookie = "none"}
 
 console.log({
-      secure: securityCookie,
-      sameSite: sameSiteCookie,
+      secure: true,
+      sameSite: "none",
 })
 // ===== CONFIG =====
 const JWT_SECRET = process.env.JWT_SECRET;
