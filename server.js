@@ -14,7 +14,7 @@ const app = express();
 
 // ===== MIDDLEWARE =====
 app.use(cors({
-  origin: ["http://localhost:3000", "https://diary-cosmic-q46z.vercel.app"],
+  origin: ["http://localhost:3000", "https://diary-cosmic-liard.vercel.app/"],
   credentials: true
 }));
 app.use(express.json());
@@ -106,7 +106,7 @@ app.get("/api/confirm", async (req, res) => {
   try {
     const { data, error } = await supabase.rpc("confirm_email", { token });
     if (error || !data?.[0]?.success) {
-      return res.status(400).send("Invalid or expired token. Or just try login ;)");
+      return res.status(400).send("Invalid or expired token. Or just try login ;) \n Or...wait a minute and try again(gmail)");
     }
 
     res.send("Email confirmed! You can now login.");
