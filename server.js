@@ -539,6 +539,204 @@ app.delete("/api/diary-delete/:id", async (req, res) => {
 
 
 
+//SETTINGS PAGE
+
+//email change
+app.post("/api/change-email-request",async(req,res)=>{
+  const token = req.cookies.access_token;
+  const {newEmail} = req.body;
+
+  if(!token) return res.status(403).json({ message:"No token"});
+
+  try{
+  const payload = jwt.verify(token,JWT_SECRET);
+  const emailToken = crypto.randomBytes(32).toString("hex");
+
+  await supabase.from("users").update({
+    new_email:newEmail,
+    email_change_token:emailToken
+  })
+  .eq("email",payload.email);
+  console.log(process.env.SERVER_URL)
+
+  await client.sendTransacEmail({
+      sender:{
+        email:"myfirststepsprogramming@gmail.com",
+        name:"Light"
+      },
+      to:[{email:newEmail}],
+      subject:"Confirm new email",
+      htmlContent:`
+        <a href="${process.env.SERVER_URL}/api/change-email-confirm?token=${emailToken}">
+        Confirm new email
+        </a>`
+    });
+
+    res.status(200).json({
+    message:"Confirm new email first"
+  });
+
+  }catch(e){
+  console.log(e);
+  res.status(500).json({
+    message:"Server error"
+  });
+  }
+});
+
+
+//api email change for confirmation letter
+app.get("/api/change-email-confirm",async(req,res)=>{
+  const {token} = req.query;
+
+  if(!token) return res.status(400).send("Token missing");
+
+  try{
+  const {data:user,error} = await supabase
+  .from("users")
+  .select("*")
+  .eq("email_change_token",token)
+  .single();
+
+  if(error || !user) return res.status(401).send("Invalid token");
+
+  await supabase
+  .from("users")
+  .update({
+    email:user.new_email,
+    new_email:null,
+    email_change_token:null
+  })
+  .eq("id",user.id);
+
+  res.clearCookie("access_token");
+  res.clearCookie("refresh_token");
+
+  res.send("Email updated. Login again.");
+
+  }catch(e){
+  res.status(500).send("Server error");
+  }
+});
+
+//change password
+app.post("/api/change-password",async(req,res)=>{
+  const token = req.cookies.access_token;
+  const {currentPassword,newPassword} = req.body;
+
+  if(!token) return res.status(403).json({message:"No token"});
+  if(!currentPassword || !newPassword)
+  return res.status(400).json({message:"Passwords required"});
+
+  try{
+  const payload = jwt.verify(token,JWT_SECRET);
+
+  const {data:user,error} = await supabase
+  .from("users")
+  .select("password")
+  .eq("email",payload.email)
+  .single();
+
+  if(error || !user)
+  return res.status(404).json({message:"User not found"});
+
+  const valid = await bcrypt.compare(
+    currentPassword,
+    user.password
+  );
+
+  if(!valid)
+  return res.status(400).json({
+    message:"Current password incorrect"
+  });
+
+  const hashed = await bcrypt.hash(newPassword,10);
+
+  const {error:updateError} = await supabase
+  .from("users")
+  .update({password:hashed})
+  .eq("email",payload.email);
+
+  if(updateError)
+  return res.status(400).json({
+    message:updateError.message
+  });
+
+  res.status(200).json({
+    message:"Password updated"
+  });
+
+  }catch(e){
+  res.status(401).json({
+    message:"Invalid token"
+  });
+  }
+});
+
+//change username: 
+app.post("/api/change-username",async(req,res)=>{
+  const token = req.cookies.access_token;
+  const {username} = req.body;
+
+  if(!token) return res.status(403).json({message:"No token"});
+  if(!username) return res.status(400).json({message:"Username required"});
+
+  try{
+  const payload = jwt.verify(token,JWT_SECRET);
+
+  const {error} = await supabase
+  .from("users")
+  .update({username})
+  .eq("email",payload.email);
+
+  if(error) return res.status(400).json({
+    message:error.message
+  });
+
+  res.status(200).json({
+    message:"Username updated"
+  });
+
+  }catch(e){
+  res.status(401).json({
+    message:"Invalid token"
+  });
+  }
+});
+
+
+//delete user
+app.delete("/api/user-delete",async(req,res)=>{
+  const token = req.cookies.access_token;
+
+  if(!token) return res.status(403).json({message:"No token"});
+
+  try{
+  const payload = jwt.verify(token,JWT_SECRET);
+
+  const {error} = await supabase
+  .from("users")
+  .delete()
+  .eq("email",payload.email);
+
+  if(error) return res.status(400).json({
+    message:error.message
+  });
+
+  res.clearCookie("access_token",{path:"/"});
+  res.clearCookie("refresh_token",{path:"/"});
+
+  res.status(200).json({
+    message:"Account deleted"
+  });
+
+  }catch(e){
+  res.status(401).json({
+    message:"Invalid token"
+  });
+  }
+});
+
 
 // ===== START SERVER =====
 app.listen(process.env.PORT, () =>
