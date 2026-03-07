@@ -9,25 +9,25 @@ import cors from "cors";
 import SibApiV3Sdk from "@sendinblue/client";
 
 dotenv.config();
-const isProd = process.env.PROD;
 const app = express();
+
+// ===== PROD / DEV SETTINGS =====
+const isProd = process.env.PROD === "true"; // true на Render, false локально
+
+const cookieOptions = {
+  httpOnly: true,
+  secure: isProd,                   // true на проде, false локально
+  sameSite: isProd ? "none" : "lax", // none для кросс-домена на проде, lax локально
+  path: "/",
+};
+
 // ===== MIDDLEWARE =====
+app.use(express.json());
+app.use(cookieParser());
 app.use(cors({
   origin: ["http://localhost:3000", "https://diary-cosmic-liard.vercel.app"],
   credentials: true
 }));
-app.use(express.json());
-app.use(cookieParser());
-
-
-const cookieOptions = {
-  httpOnly: true,
-  secure: false,          // true на проде, false на локале
-  sameSite: isProd ? "none" : "lax", // none для кросс-домена на проде
-  path: "/",
-};
-
-
 // ===== SUPABASE =====
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_API_KEY);
 
@@ -132,7 +132,6 @@ app.post("/api/login", async (req, res) => {
     if (!valid)
       return res.status(400).json({ message: "Invalid email or password" });
 
-// Генерим токены
     const accessToken = jwt.sign({ email: user.email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
     const refreshToken = jwt.sign({ email: user.email }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRE });
 
@@ -156,12 +155,7 @@ app.post("/api/refresh", (req, res) => {
     const payload = jwt.verify(refreshToken, REFRESH_SECRET);
     const newAccess = jwt.sign({ email: payload.email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
 
-    res.cookie("access_token", newAccess, {
-      httpOnly: true,
-      secure: securityCookie,
-      sameSite: sameSiteCookie,
-      maxAge: 15 * 60 * 1000
-    });
+    res.cookie("access_token", newAccess, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
 
     res.status(200).json({ message: "Token refreshed" });
   } catch (err) {
