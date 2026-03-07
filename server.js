@@ -9,9 +9,9 @@ import cors from "cors";
 import SibApiV3Sdk from "@sendinblue/client";
 
 dotenv.config();
-
+const isProd = false;
 const app = express();
-
+console.log
 // ===== MIDDLEWARE =====
 app.use(cors({
   origin: ["http://localhost:3000", "https://diary-cosmic-liard.vercel.app"],
@@ -21,10 +21,12 @@ app.use(express.json());
 app.use(cookieParser());
 
 
-// app.use((req, res, next) => {
-//   console.log(req.method, req.url);
-//   next();
-// });
+const cookieOptions = {
+  httpOnly: true,
+  secure: false,          // true на проде, false на локале
+  sameSite: isProd ? "none" : "lax", // none для кросс-домена на проде
+  path: "/",
+};
 
 
 // ===== SUPABASE =====
@@ -45,16 +47,9 @@ async function sendVerification(email, token) {
     htmlContent: `<a href="${process.env.SERVER_URL}/api/confirm?token=${token}">Verify email</a>`,
   });
 }
-const securityCookie = true
-let sameSiteCookie = "none"
-// if(!process.env.PROD) {
-//   sameSiteCookie = "lax"
-// }else {sameSiteCookie = "none"}
+const securityCookie = isProd
+const sameSiteCookie = cookieOptions.sameSite
 
-console.log({
-      secure: securityCookie,
-      sameSite: sameSiteCookie,
-})
 // ===== CONFIG =====
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRE = process.env.JWT_EXPIRE; // e.g. "15m"
@@ -138,26 +133,15 @@ app.post("/api/login", async (req, res) => {
     if (!valid)
       return res.status(400).json({ message: "Invalid email or password" });
 
-    // Генерим токены
-    const accessToken = jwt.sign({ email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
-    const refreshToken = jwt.sign({ email }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRE });
-    
-    // Кладём Оба токена в HttpOnly cookies
-    res.cookie("access_token", accessToken, {
-      httpOnly: true,
-      secure: securityCookie,
-      sameSite: sameSiteCookie,
-      maxAge: 15 * 60 * 1000 // 15 минут (или как в JWT_EXPIRE)
-    });
-    res.cookie("refresh_token", refreshToken, {
-      httpOnly: true,
-      secure: securityCookie,
-      sameSite: sameSiteCookie,
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 дней
-    });
+// Генерим токены
+    const accessToken = jwt.sign({ email: user.email }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
+    const refreshToken = jwt.sign({ email: user.email }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRE });
 
-    // Теперь JSON не нужен — браузер сам будет отправлять куки
+    res.cookie("access_token", accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
+    res.cookie("refresh_token", refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 });
+
     res.status(200).json({ message: "Logged in!" });
+
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
@@ -211,8 +195,8 @@ app.get("/api/me", async (req, res) => {
 
 // ===== LOGOUT =====
 app.post("/api/logout", (req, res) => {
-  res.clearCookie("access_token", { httpOnly: true, path: "/" });
-  res.clearCookie("refresh_token", { httpOnly: true, path: "/" });
+  res.clearCookie("access_token", cookieOptions);
+  res.clearCookie("refresh_token", cookieOptions);
   res.status(200).json({ message: "Logged out" });
 });
 
