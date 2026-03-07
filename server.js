@@ -9,9 +9,8 @@ import cors from "cors";
 import SibApiV3Sdk from "@sendinblue/client";
 
 dotenv.config();
-const isProd = false;
+const isProd = process.env.PROD;
 const app = express();
-console.log
 // ===== MIDDLEWARE =====
 app.use(cors({
   origin: ["http://localhost:3000", "https://diary-cosmic-liard.vercel.app"],
